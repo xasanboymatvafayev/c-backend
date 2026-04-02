@@ -54,3 +54,18 @@ async def get_user_by_tg(telegram_id: int, db: AsyncSession = Depends(get_db), _
         "balance": user.balance, "total_won": user.total_won, "total_lost": user.total_lost,
         "is_blocked": user.is_blocked, "created_at": user.created_at.isoformat()
     }
+
+
+class UpdatePasswordReq(BaseModel):
+    telegram_id: int
+    password_hash: str
+
+@router.post("/update_password")
+async def update_password(req: UpdatePasswordReq, db: AsyncSession = Depends(get_db), _=Depends(verify_admin)):
+    result = await db.execute(select(User).where(User.telegram_id == req.telegram_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(404, "Foydalanuvchi topilmadi")
+    user.password_hash = req.password_hash
+    await db.commit()
+    return {"status": "ok"}
