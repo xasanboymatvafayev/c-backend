@@ -263,3 +263,58 @@ async def confirm_withdraw(req: ConfirmWithdrawReq, db: AsyncSession = Depends(g
     tx.confirmed_at = datetime.utcnow()
     await db.commit()
     return {"status": "confirmed", "tx_id": tx.id}
+
+
+# ── YECHISH BOSHQARUVI ────────────────────────────────────────────────
+ 
+class WithdrawCreateReq(BaseModel):
+    user_id: int
+    amount: float
+    card_number: str
+ 
+@router.post("/withdraw/create")
+async def admin_create_withdraw(
+    req: WithdrawCreateReq,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(verify_admin)
+):
+    """Bot tomonidan yechish so'rovi — balansdan ayiradi"""
+    user = await db.get(User, req.user_id)
+    if not user:
+        raise HTTPException(404, "Foydalanuvchi topilmadi")
+    if user.balance_frozen:
+        raise HTTPException(403, "Balans muzlatilgan")
+    if user.balance < req.amount:
+        raise HTTPException(400, f"Balans yetarli emas. Mavjud: {user.balance:,.0f}")
+ 
+    user.balance -= req.amount
+    tx = Transaction(
+        user_id=req.user_id, type="withdraw",
+        amount=req.amount, status="pending",
+        note=f"Karta: {req.card_number}"
+    )
+    db.add(tx)
+    await db.commit()
+    await db.refresh(tx)
+    return {"status": "pending", "tx_id": tx.id, "new_balance": user.balance}
+ 
+class ConfirmWithdrawReq(BaseModel):
+    tx_id: int
+ 
+@router.post("/confirm_withdraw")
+async def confirm_withdraw(
+    req: ConfirmWithdrawReq,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(verify_admin)
+):
+    tx = await db.get(Transaction, req.tx_id)
+    if not tx:
+        raise HTTPException(404, "Tranzaksiya topilmadi")
+    if tx.status != "pending":
+        raise HTTPException(400, "Allaqachon ko'rib chiqilgan")
+    tx.status         = "confirmed"
+    tx.admin_confirmed = True
+    tx.confirmed_at   = datetime.utcnow()
+    await db.commit()
+    return {"status": "confirmed", "tx_id": tx.id}
+ 
